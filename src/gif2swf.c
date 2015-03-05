@@ -65,7 +65,6 @@ enum disposal_method {
     RESTORE_TO_PREVIOUS
 };
 
-
 void SetFrameAction(TAG ** t, const char *src, int ver)
 {
     ActionTAG *as;
@@ -242,8 +241,12 @@ TAG *MovieAddFrame(SWF * swf, TAG * t, char *sname, int id, int imgidx)
     }
 
     if ((ret = DGifSlurp(gft)) != GIF_OK) {
-#if defined(GIFLIB_MAJOR) && GIFLIB_MAJOR >= 5
-        fprintf(stderr, "GIF-LIB: %s\n", GifErrorString(ret));
+#if defined(GIFLIB_MAJOR) && defined(GIFLIB_MINOR) && \
+  ((GIFLIB_MAJOR == 4 && GIFLIB_MINOR >= 2) || GIFLIB_MAJOR >= 5)
+        const char *gif_error = GifErrorString();
+        if (gif_error == NULL)
+            gif_error = "Unknown error";
+        fprintf(stderr, "GIF-LIB: %s\n", gif_error);
 #else
         PrintGifError();
 #endif
@@ -518,8 +521,12 @@ int CheckInputFile(char *fname, char **realname)
         global.max_image_height = gft->SHeight;
 
     if ((ret = DGifSlurp(gft)) != GIF_OK) {
-#if defined(GIFLIB_MAJOR) && GIFLIB_MAJOR >= 5
-        fprintf(stderr, "GIF-LIB: %s\n", GifErrorString(ret));
+#if defined(GIFLIB_MAJOR) && defined(GIFLIB_MINOR) && \
+  ((GIFLIB_MAJOR == 4 && GIFLIB_MINOR >= 2) || GIFLIB_MAJOR >= 5)
+        const char *gif_error = GifErrorString();
+        if (gif_error == NULL)
+            gif_error = "Unknown error";
+        fprintf(stderr, "GIF-LIB: %s\n", gif_error);
 #else
         PrintGifError();
 #endif
