@@ -455,14 +455,65 @@ void applyfilter1(int mode, U8*src, U8*old, U8*dest, int width)
 
 }
 
+int ParseFrameRepeat(char *param, char *fileName)
+{
+    int repeat = 1;
+    int len = strlen(param);
+
+    if (VERBOSE(2))
+        fprintf(stderr, "Last character is %c\n", param[len-1]);
+
+    if (param[len-1] == ']')
+    {
+        // Find the matching start bracket
+        int startIdx = len-1;
+        while (param[--startIdx] != '[')
+            ;
+
+        // Get the string between the brackets and convert it to int
+        char *repeatStr = malloc(sizeof(char)*(len-startIdx)+1);
+        strncpy(repeatStr, param+startIdx+1, len-(startIdx+2));
+        repeatStr[len-(startIdx+2)] = (char)0;
+
+        if (VERBOSE(2))
+            fprintf(stderr, "Repeat string: %s\n", repeatStr);
+
+        repeat = atoi(repeatStr);
+        free(repeatStr);
+
+        // Chop off the repeat specifier from the file name
+        strncpy(fileName, param, startIdx);
+        fileName[startIdx] = (char)0;
+    }
+    else
+    {
+        strncpy(fileName, param, len);
+        fileName[len] = (char)0;
+    }
+
+    if (VERBOSE(2))
+        fprintf(stderr, "Repeating %s %i times\n", fileName, repeat);
+
+    return repeat;
+}
+
 TAG *MovieAddFrame(SWF * swf, TAG * t, char *sname, int id)
 {
     SHAPE *s;
     SRECT r;
     MATRIX m;
+    RGBA *data = 0;
     int fs;
+    char *fileName = malloc(sizeof(char) * strlen(sname));
+    int repeat = ParseFrameRepeat(sname, fileName);
 
     unsigned width=0, height=0;
+
+    png_load(fileName, &width, &height, (unsigned char**)&data);
+    free(fileName);
+
+    if (!data)
+	exit(1);
 
 #ifndef HAVE_JPEGLIB
     if(global.mkjpeg) {
@@ -470,78 +521,74 @@ TAG *MovieAddFrame(SWF * swf, TAG * t, char *sname, int id)
         msg("<warning> No jpeg support compiled in");
     }
 #endif
-    if(global.mkjpeg) {
+
+    do
+    {
+        if(global.mkjpeg) {
 #ifdef HAVE_JPEGLIB
-	RGBA*data = 0;
-	png_load(sname, &width, &height, (unsigned char**)&data);
-	if(!data) 
-	    exit(1);
-	if(swf_ImageHasAlpha(data, width, height)) {
-	    t = swf_InsertTag(t, ST_DEFINEBITSJPEG3);
-	    swf_SetU16(t, id);
-	    swf_SetJPEGBits3(t, width,height,data,global.mkjpeg);
-	} else {
-	    t = swf_InsertTag(t, ST_DEFINEBITSJPEG2);
-	    swf_SetU16(t, id);
-	    swf_SetJPEGBits2(t, width,height,data,global.mkjpeg);
-	}
+            if(swf_ImageHasAlpha(data, width, height)) {
+                t = swf_InsertTag(t, ST_DEFINEBITSJPEG3);
+                swf_SetU16(t, id);
+                swf_SetJPEGBits3(t, width,height,data,global.mkjpeg);
+            } else {
+                t = swf_InsertTag(t, ST_DEFINEBITSJPEG2);
+                swf_SetU16(t, id);
+                swf_SetJPEGBits2(t, width,height,data,global.mkjpeg);
+            }
 #endif
-    } else {
-	RGBA*data = 0;
-	png_load(sname, &width, &height, (unsigned char**)&data);
-	if(!data) 
-	    exit(1);
-	t = swf_InsertTag(t, ST_DEFINEBITSLOSSLESS);
-	swf_SetU16(t, id);
-	swf_SetLosslessImage(t, data,width,height);
-    }
+        } else {
+            t = swf_InsertTag(t, ST_DEFINEBITSLOSSLESS);
+            swf_SetU16(t, id);
+            swf_SetLosslessImage(t, data,width,height);
+        }
 
-    t = swf_InsertTag(t, ST_DEFINESHAPE3);
+        t = swf_InsertTag(t, ST_DEFINESHAPE3);
 
-    swf_ShapeNew(&s);
-    swf_GetMatrix(NULL, &m);
-    m.sx = (int)(20 * 0x10000);
-    m.sy = (int)(20 * 0x10000);
-    m.tx = 0;
-    m.ty = 0;
-    fs = swf_ShapeAddBitmapFillStyle(s, &m, id, 1);
+        swf_ShapeNew(&s);
+        swf_GetMatrix(NULL, &m);
+        m.sx = (int)(20 * 0x10000);
+        m.sy = (int)(20 * 0x10000);
+        m.tx = 0;
+        m.ty = 0;
+        fs = swf_ShapeAddBitmapFillStyle(s, &m, id, 1);
 
-    swf_SetU16(t, id + 1);	// id
+        swf_SetU16(t, id + 1);	// id
 
-    r.xmin = r.ymin = 0;
-    r.xmax = width * 20;
-    r.ymax = height * 20;
-    swf_SetRect(t, &r);
+        r.xmin = r.ymin = 0;
+        r.xmax = width * 20;
+        r.ymax = height * 20;
+        swf_SetRect(t, &r);
 
-    swf_SetShapeHeader(t, s);
+        swf_SetShapeHeader(t, s);
 
-    swf_ShapeSetAll(t, s, 0, 0, 0, fs, 0);
-    swf_ShapeSetLine(t, s, r.xmax, 0);
-    swf_ShapeSetLine(t, s, 0, r.ymax);
-    swf_ShapeSetLine(t, s, -r.xmax, 0);
-    swf_ShapeSetLine(t, s, 0, -r.ymax);
+        swf_ShapeSetAll(t, s, 0, 0, 0, fs, 0);
+        swf_ShapeSetLine(t, s, r.xmax, 0);
+        swf_ShapeSetLine(t, s, 0, r.ymax);
+        swf_ShapeSetLine(t, s, -r.xmax, 0);
+        swf_ShapeSetLine(t, s, 0, -r.ymax);
 
-    swf_ShapeSetEnd(t);
+        swf_ShapeSetEnd(t);
 
-    t = swf_InsertTag(t, ST_REMOVEOBJECT2);
-    swf_SetU16(t, 50);		// depth
+        t = swf_InsertTag(t, ST_REMOVEOBJECT2);
+        swf_SetU16(t, 50);		// depth
 
-    t = swf_InsertTag(t, ST_PLACEOBJECT2);
+        t = swf_InsertTag(t, ST_PLACEOBJECT2);
 
-    swf_GetMatrix(NULL, &m);
-    m.sx = (int)(0x10000 * global.scale);
-    m.sy = (int)(0x10000 * global.scale);
+        swf_GetMatrix(NULL, &m);
+        m.sx = (int)(0x10000 * global.scale);
+        m.sy = (int)(0x10000 * global.scale);
 
-    if(custom_move) {
-	m.tx = move_x*20;
-	m.ty = move_y*20;
-    } else {
-	m.tx = (swf->movieSize.xmax - (int) (width * global.scale * 20)) / 2;
-	m.ty = (swf->movieSize.ymax - (int) (height * global.scale * 20)) / 2;
-    }
-    swf_ObjectPlace(t, id + 1, 50, &m, NULL, NULL);
+        if(custom_move) {
+            m.tx = move_x*20;
+            m.ty = move_y*20;
+        } else {
+            m.tx = (swf->movieSize.xmax - (int) (width * global.scale * 20)) / 2;
+            m.ty = (swf->movieSize.ymax - (int) (height * global.scale * 20)) / 2;
+        }
+        swf_ObjectPlace(t, id + 1, 50, &m, NULL, NULL);
 
-    t = swf_InsertTag(t, ST_SHOWFRAME);
+        t = swf_InsertTag(t, ST_SHOWFRAME);
+    } while (--repeat > 0);
 
     return t;
 }
@@ -556,10 +603,9 @@ int CheckInputFile(char *fname, char **realname)
     if (!s)
 	exit(2);
     (*realname) = s;
-    strcpy(s, fname);
+    ParseFrameRepeat(fname, s);
 
     // Check whether file exists (with typical extensions)
-
     if ((fi = fopen(s, "rb")) == NULL) {
 	sprintf(s, "%s.png", fname);
 	if ((fi = fopen(s, "rb")) == NULL) {
@@ -567,7 +613,7 @@ int CheckInputFile(char *fname, char **realname)
 	    if ((fi = fopen(s, "rb")) == NULL) {
 		sprintf(s, "%s.Png", fname);
 		if ((fi = fopen(s, "rb")) == NULL) {
-		    fprintf(stderr, "Couldn't open %s!\n", fname);
+		    fprintf(stderr, "Couldn't open %s!\n", s);
 		    return -1;
 		}
 	    }
@@ -748,9 +794,8 @@ int args_callback_command(char *arg, char *next)	// actually used as filename
     if (CheckInputFile(arg, &s) < 0) {
 	if (VERBOSE(1))
 	    fprintf(stderr, "Error opening input file: %s\n", arg);
-	free(s);
     } else {
-	image[global.nfiles].filename = s;
+	image[global.nfiles].filename = arg;
 	global.nfiles++;
 	if (global.nfiles >= MAX_INPUT_FILES) {
 	    if (VERBOSE(1))
@@ -758,6 +803,9 @@ int args_callback_command(char *arg, char *next)	// actually used as filename
 	    exit(1);
 	}
     }
+
+    free(s);
+
     return 0;
 }
 
@@ -814,7 +862,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "[%03i] %s\n", i,
 			image[i].filename);
 	    t = MovieAddFrame(&swf, t, image[i].filename, (i * 2) + 1);
-	    free(image[i].filename);
 	}
     }
 
